@@ -11,7 +11,7 @@ import requests  # Using requests library for simplicity in API calls
 # It's crucial for getting the correct translation behavior from the model.
 TRANSLATION_PROMPT_TEMPLATE = """
 **Role:** You are an expert technical translator and a native Brazilian Portuguese speaker. Your goal is to translate English HTML content into fluent, natural-sounding Brazilian Portuguese.
- 
+
 **Task:** Translate the user-provided English HTML content to Portuguese while strictly following all the rules below. Your output must be only the translated HTML string.
 
 **Rules:**
@@ -55,7 +55,7 @@ def get_gemini_translation(api_key, text_to_translate):
     Calls the Gemini API to translate text using the predefined prompt.
     Includes exponential backoff for retries.
     """
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
 
     full_prompt = TRANSLATION_PROMPT_TEMPLATE.format(english_text=text_to_translate)
     
@@ -63,7 +63,7 @@ def get_gemini_translation(api_key, text_to_translate):
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
             "temperature": 0.2,
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": 8192, # Increased token limit to handle larger content
         }
     }
 
@@ -77,11 +77,17 @@ def get_gemini_translation(api_key, text_to_translate):
             
             result = response.json()
             
-            if 'candidates' in result and result['candidates'] and 'content' in result['candidates'][0] and 'parts' in result['candidates'][0]['content']:
-                return result['candidates'][0]['content']['parts'][0]['text'].strip()
+            # Check for the 'candidates' key and that it's not empty
+            if 'candidates' in result and result['candidates']:
+                # Check for content and parts within the first candidate
+                candidate = result['candidates'][0]
+                if 'content' in candidate and 'parts' in candidate['content'] and candidate['content']['parts']:
+                    return candidate['content']['parts'][0]['text'].strip()
             
-            st.error(f"Unexpected API response structure: {result}")
-            return "Error: Unexpected response format."
+            # If the expected structure is not found, log the reason
+            finish_reason = result.get('candidates', [{}])[0].get('finishReason', 'UNKNOWN')
+            st.error(f"Translation failed. Finish Reason: {finish_reason}. Full response: {result}")
+            return f"Error: Translation stopped ({finish_reason})."
 
         except requests.exceptions.HTTPError as http_err:
             if response.status_code == 429:
