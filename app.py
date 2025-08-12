@@ -55,49 +55,39 @@ def get_gemini_translation(api_key, text_to_translate):
     Calls the Gemini API to translate text using the predefined prompt.
     Includes exponential backoff for retries.
     """
-    # The API key is passed as a parameter for security and flexibility.
-    # The model name is specified here.
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
 
-    # Construct the full prompt
     full_prompt = TRANSLATION_PROMPT_TEMPLATE.format(english_text=text_to_translate)
     
     payload = {
-        "contents": [{
-            "parts": [{"text": full_prompt}]
-        }],
+        "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
-            "temperature": 0.2, # Lower temperature for more deterministic, less creative output
+            "temperature": 0.2,
             "maxOutputTokens": 4096,
         }
     }
 
     max_retries = 5
-    delay = 1  # Initial delay in seconds
+    delay = 1
 
     for attempt in range(max_retries):
         try:
             response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'})
-            response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+            response.raise_for_status()
             
             result = response.json()
             
-            # Navigate the JSON response to get the translated text
-            if 'candidates' in result and result['candidates']:
-                if 'content' in result['candidates'][0] and 'parts' in result['candidates'][0]['content']:
-                    translated_text = result['candidates'][0]['content']['parts'][0]['text']
-                    return translated_text.strip()
+            if 'candidates' in result and result['candidates'] and 'content' in result['candidates'][0] and 'parts' in result['candidates'][0]['content']:
+                return result['candidates'][0]['content']['parts'][0]['text'].strip()
             
-            # Handle cases where the response structure is unexpected
             st.error(f"Unexpected API response structure: {result}")
             return "Error: Unexpected response format."
 
         except requests.exceptions.HTTPError as http_err:
-            # Handle specific HTTP errors, like 429 Too Many Requests
             if response.status_code == 429:
                 st.warning(f"Rate limit hit. Retrying in {delay} seconds... (Attempt {attempt + 1}/{max_retries})")
                 time.sleep(delay)
-                delay *= 2  # Exponential backoff
+                delay *= 2
             else:
                 st.error(f"HTTP error occurred: {http_err} - {response.text}")
                 return f"Error: HTTP {response.status_code}"
@@ -122,12 +112,10 @@ def get_sample_excel():
     }
     df_sample = pd.DataFrame(sample_data)
     
-    # Use BytesIO to save the file in memory
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_sample.to_excel(writer, index=False, sheet_name='translations')
     
-    # Rewind the buffer
     output.seek(0)
     return output.getvalue()
 
@@ -150,12 +138,20 @@ def get_download_link(df, filename="translated_data.xlsx"):
 st.set_page_config(page_title="HTML Content Translator", layout="wide")
 
 st.title("批量HTML内容翻译器 (Bulk HTML Content Translator)")
-st.markdown("使用Gemini Pro将Excel文件中的英文HTML内容翻译成葡萄牙语，同时保留所有格式和指定的术语。")
 st.markdown("This app uses Gemini Pro to translate English HTML content from an Excel file into Portuguese, preserving all formatting and specified terms.")
 
-# API Key Input
-st.sidebar.header("Configuration")
-api_key = st.sidebar.text_input("Enter your Gemini API Key", type="password")
+# --- Load API Key from Secrets ---
+# For deployment on Streamlit Cloud, the API key is stored in secrets.
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    st.error("GEMINI_API_KEY not found in Streamlit secrets.")
+    st.info("Please add your Gemini API key to your Streamlit Cloud secrets. For local testing, you can create a .streamlit/secrets.toml file.")
+    st.stop()
+
+
+st.sidebar.header("Instructions")
+st.sidebar.info("Upload an Excel file with 'key' and 'english_string' columns to begin the translation.")
 
 st.sidebar.markdown("---")
 
@@ -177,7 +173,6 @@ if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
         
-        # Validate columns
         if 'key' not in df.columns or 'english_string' not in df.columns:
             st.error("Error: The uploaded Excel file must contain 'key' and 'english_string' columns.")
         else:
@@ -185,42 +180,32 @@ if uploaded_file:
             st.dataframe(df.head())
 
             if st.button("Translate to Portuguese"):
-                if not api_key:
-                    st.warning("Please enter your Gemini API Key in the sidebar to proceed.")
-                else:
-                    # Translation process
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    total_rows = len(df)
-                    
-                    df['portuguese_string'] = '' # Initialize the new column
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                total_rows = len(df)
+                
+                df['portuguese_string'] = ''
 
-                    for index, row in df.iterrows():
-                        english_text = row['english_string']
-                        
-                        # Update status
-                        status_text.text(f"Translating row {index + 1}/{total_rows}...")
+                for index, row in df.iterrows():
+                    english_text = row['english_string']
+                    
+                    status_text.text(f"Translating row {index + 1}/{total_rows}...")
 
-                        # Check for empty or non-string content to avoid unnecessary API calls
-                        if isinstance(english_text, str) and english_text.strip():
-                            translated_text = get_gemini_translation(api_key, english_text)
-                            df.at[index, 'portuguese_string'] = translated_text
-                        else:
-                            # If the cell is empty or not a string, keep the translation empty
-                            df.at[index, 'portuguese_string'] = ''
+                    if isinstance(english_text, str) and english_text.strip():
+                        translated_text = get_gemini_translation(api_key, english_text)
+                        df.at[index, 'portuguese_string'] = translated_text
+                    else:
+                        df.at[index, 'portuguese_string'] = ''
 
-                        # Update progress bar
-                        progress_bar.progress((index + 1) / total_rows)
-                    
-                    status_text.success("Translation complete!")
-                    
-                    st.markdown("---")
-                    st.subheader("Translated Content")
-                    st.dataframe(df)
-                    
-                    # Provide download link
-                    st.markdown(get_download_link(df), unsafe_allow_html=True)
+                    progress_bar.progress((index + 1) / total_rows)
+                
+                status_text.success("Translation complete!")
+                
+                st.markdown("---")
+                st.subheader("Translated Content")
+                st.dataframe(df)
+                
+                st.markdown(get_download_link(df), unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"An error occurred while processing the file: {e}")
-
