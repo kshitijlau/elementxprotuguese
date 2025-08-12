@@ -11,7 +11,7 @@ import requests  # Using requests library for simplicity in API calls
 # It's crucial for getting the correct translation behavior from the model.
 TRANSLATION_PROMPT_TEMPLATE = """
 **Role:** You are an expert technical translator and a native Brazilian Portuguese speaker. Your goal is to translate English HTML content into fluent, natural-sounding Brazilian Portuguese.
-
+ 
 **Task:** Translate the user-provided English HTML content to Portuguese while strictly following all the rules below. Your output must be only the translated HTML string.
 
 **Rules:**
