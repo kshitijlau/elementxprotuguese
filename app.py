@@ -55,7 +55,7 @@ def get_gemini_translation(api_key, text_to_translate):
     Calls the Gemini API to translate text using the predefined prompt.
     Includes exponential backoff for retries.
     """
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}"
 
     full_prompt = TRANSLATION_PROMPT_TEMPLATE.format(english_text=text_to_translate)
     
